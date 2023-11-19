@@ -1,0 +1,106 @@
+version: '2.3'
+
+services:
+
+    analyser-default:
+        restart: always
+        image: doc-text-extractor/doc-text-extractor:latest
+        env_file:
+            - .env
+        build:
+            context: .
+            dockerfile: ./Dockerfile
+        container_name: 'analyser-default'
+        command: 'celery -A doc_analyser.celery worker -l info -Q default -c 10 -n defaultl@%h'
+        volumes:
+            - './:/code/'
+            - './output_files:/output_files'
+        depends_on:
+            - rabbitmq
+            - redis
+
+    analyser-pdf:
+        restart: always
+        image: doc-text-extractor/doc-text-extractor:latest
+        env_file:
+            - .env
+        build:
+            context: .
+            dockerfile: ./Dockerfile
+        container_name: 'analyser-pdf'
+        command: 'celery -A doc_analyser.celery worker -l info -Q pdf -c 10 -n pdf@%h'
+        volumes:
+            - './:/code/'
+            - './output_files:/output_files'
+        depends_on:
+            - rabbitmq
+            - redis
+
+    flower:
+        restart: always
+        image: doc-text-extractor/doc-text-extractor:latest
+        env_file:
+            - .env
+        container_name: flask-flower
+        command: 'celery -A doc_analyser.celery flower  --address=0.0.0.0 --port=5555'
+        volumes:
+            - './:/code/'
+            - './output_files:/output_files'
+        ports:
+            - '5555:5555'
+        depends_on:
+            - rabbitmq
+            - redis
+
+    redis:
+        restart: always
+        container_name: 'redis-client'
+        image: 'redis'
+        expose:
+            - "6379"
+        volumes:
+            - './data:/data'
+
+    rabbitmq:
+        restart: always
+        container_name: 'rabbitmq'
+        image: 'rabbitmq:3.8.3-management'
+        ports:
+        - "1111:15672"
+        - "25676:25676"
+        expose:
+        - "5672"
+        environment:
+        - RABBITMQ_DEFAULT_USER=rabbituser
+        - RABBITMQ_DEFAULT_PASS=!rabbitpass
+        - RABBITMQ_DEFAULT_VHOST=docbase
+
+    web:
+        restart: always
+        image: doc-text-extractor/doc-text-extractor:latest
+        env_file:
+            - .env
+        build:
+            context: .
+            dockerfile: ./Dockerfile
+        container_name: 'web'
+        command: 'python app.py'
+        volumes:
+            - './:/code/'
+            - './output_files:/output_files'
+        expose:
+            - "5000"
+        depends_on:
+            - rabbitmq
+            - redis
+
+    nginx:
+        restart: always
+        image: nginx:latest
+        ports:
+        - "5000:5000"
+        volumes:
+            - .:/code
+            - ${NGINX_CONFIG_FILE_PATH}:/etc/nginx/conf.d/default.conf
+        depends_on:
+            - web
